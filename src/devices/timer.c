@@ -182,9 +182,9 @@ timer_interrupt (struct intr_frame *args UNUSED)
   */
   int64_t soon_wakeup_tick = get_soon_wakeup_tick();
   if (soon_wakeup_tick != -1) {
-    struct thread *t = NULL;
-    struct list_elem *e = NULL;
     if (soon_wakeup_tick <= ticks) {
+      struct thread *t = NULL;
+      struct list_elem *e = NULL;
       while (!list_empty(&sleep_list)) {
         e = list_front(&sleep_list);
         t = list_entry(e, struct thread, sleep_elem);
