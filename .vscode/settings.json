@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "io.h": "c",
+        "cstdlib": "cpp",
+        "variant": "cpp",
+        "istream": "c",
+        "ostream": "c",
+        "print": "c"
+    }
+}

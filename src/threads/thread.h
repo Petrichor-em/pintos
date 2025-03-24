@@ -89,6 +89,8 @@ struct thread
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
+    int64_t wakeup_tick;                /**< The tick when this thread should wake up. */
+    struct list_elem sleep_elem;        /**< Element for sleep list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
@@ -107,6 +109,8 @@ struct thread
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+extern struct list sleep_list;
+
 void thread_init (void);
 void thread_start (void);
 
@@ -118,6 +122,8 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+
+void thread_sleep(int64_t ticks);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
@@ -137,5 +143,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+int64_t get_soon_wakeup_tick(void);
+void set_soon_wakeup_tick(int64_t wake_tick);
 
 #endif /**< threads/thread.h */

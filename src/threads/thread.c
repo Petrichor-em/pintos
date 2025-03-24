@@ -24,6 +24,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/** List of sleeping threads. */ 
+struct list sleep_list;
+
 /** List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -49,6 +52,8 @@ struct kernel_thread_frame
 static long long idle_ticks;    /**< # of timer ticks spent idle. */
 static long long kernel_ticks;  /**< # of timer ticks in kernel threads. */
 static long long user_ticks;    /**< # of timer ticks in user programs. */
+
+static int64_t soon_wakeup_tick = -1; /**< # The tick of the thread that will wake up soon. */
 
 /** Scheduling. */
 #define TIME_SLICE 4            /**< # of timer ticks to give each thread. */
@@ -92,6 +97,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init(&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -374,6 +380,60 @@ thread_get_recent_cpu (void)
 {
   /* Not yet implemented. */
   return 0;
+}
+
+int64_t get_soon_wakeup_tick(void)
+{
+  return soon_wakeup_tick;
+}
+
+void set_soon_wakeup_tick(int64_t wakeup_tick)
+{
+  soon_wakeup_tick = wakeup_tick;
+}
+
+static bool wakeup_tick_less(const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux)
+{
+  int64_t wakeup_tick_a = list_entry(a, struct thread, sleep_elem)->wakeup_tick;
+  int64_t wakeup_tick_b = list_entry(b, struct thread, sleep_elem)->wakeup_tick;
+  if (wakeup_tick_a < wakeup_tick_b) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+void thread_sleep(int64_t wakeup_tick)
+{
+  /*
+    If the current thread is not idle thread,
+    change the state of the caller thread to BLOCKED,
+    store the local ticks to wake up,
+    update the global tick if neccessary,
+    and call schedule().
+    When manipulating thread list, disable interrupt!
+  */
+  struct thread *cur = thread_current();
+  if (cur != idle_thread) {
+    cur->wakeup_tick = wakeup_tick;
+    cur->status = THREAD_BLOCKED;
+    int64_t min = get_soon_wakeup_tick();
+    if (min == -1) {
+      min = wakeup_tick;
+    }
+    else {
+      min = (min < wakeup_tick) ? min : wakeup_tick;
+    }
+    set_soon_wakeup_tick(min);
+    // Insert this thread into sleep_list.
+    enum intr_level old_level = intr_disable();
+    list_insert_ordered(&sleep_list, &cur->sleep_elem, wakeup_tick_less, NULL);
+    schedule();
+    intr_set_level(old_level);
+  }
 }
 
 /** Idle thread.  Executes when no other thread is ready to run.

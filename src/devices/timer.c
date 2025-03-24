@@ -7,7 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-  
+
 /** See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -92,8 +92,10 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+
+  if (timer_elapsed(start) < ticks) {
+    thread_sleep(start + ticks);
+  }
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +174,34 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  /*
+    Chech sleep list and the global tick.
+    Find any thread to wake up.
+    Move them to the ready list if neccessary.
+    Update the global tick.
+  */
+  int64_t soon_wakeup_tick = get_soon_wakeup_tick();
+  if (soon_wakeup_tick != -1) {
+    struct thread *t = NULL;
+    struct list_elem *e = NULL;
+    if (soon_wakeup_tick <= ticks) {
+      while (!list_empty(&sleep_list)) {
+        e = list_front(&sleep_list);
+        t = list_entry(e, struct thread, sleep_elem);
+        if (t->wakeup_tick > ticks) {
+          break;
+        }
+        thread_unblock(t);
+        list_pop_front(&sleep_list);
+      }
+      if (!list_empty(&sleep_list)) {
+        set_soon_wakeup_tick(t->wakeup_tick);
+      }
+      else {
+        set_soon_wakeup_tick(-1);
+      }
+    }
+  }
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer

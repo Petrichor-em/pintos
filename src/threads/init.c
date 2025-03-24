@@ -134,6 +134,27 @@ pintos_init (void)
     run_actions (argv);
   } else {
     // TODO: no command line passed to kernel. Run interactively 
+      input_init();
+      console_init();
+      while (1) {
+          printf("Pintos> ");
+          char input[32];
+          char *input_ptr = input;
+          char ch;
+          while ((ch = input_getc()) != '\n') {
+              putchar(ch);
+              *input_ptr = ch;
+              ++input_ptr;
+          }
+          putchar('\n');
+          *input_ptr = 0;
+          if (strcmp(input, "exit") == 0) {
+              break;
+          } 
+          if (strcmp(input, "whoami") == 0) {
+              printf("juice\n");
+          }
+      }
   }
 
   /* Finish up. */
