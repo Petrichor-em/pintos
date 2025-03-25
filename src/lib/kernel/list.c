@@ -522,3 +522,13 @@ list_min (struct list *list, list_less_func *less, void *aux)
     }
   return min;
 }
+
+struct list_elem *list_find(struct list *list, struct list_elem *e)
+{
+  struct list_elem *cur = list_begin(list);
+  struct list_elem *end = list_end(list);
+  while (cur != end && cur != e) {
+    cur = list_next(cur);
+  }
+  return cur;
+}

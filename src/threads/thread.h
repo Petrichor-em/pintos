@@ -147,4 +147,6 @@ int thread_get_load_avg (void);
 int64_t get_soon_wakeup_tick(void);
 void set_soon_wakeup_tick(int64_t wake_tick);
 
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+
 #endif /**< threads/thread.h */
