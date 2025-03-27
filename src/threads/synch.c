@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static int lock_get_donor_priority(struct lock *lock);
+
 /** Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -115,6 +117,7 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   struct thread *unblocked = NULL;
+  list_sort(&sema->waiters, cmp_priority, NULL);
   if (!list_empty (&sema->waiters)) {
     unblocked = list_entry(list_front(&sema->waiters), struct thread, elem);
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
@@ -185,6 +188,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->max_priority = PRI_MIN;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -202,9 +206,23 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+  struct thread *cur = thread_current();
+  bool success = lock_try_acquire(lock);
+  if (!success) {
+    cur->wait_on_lock = lock;
+    if (lock->max_priority < cur->priority) {
+      lock->max_priority = cur->priority;
+      thread_update_priority(lock->holder);
+    }
+    sema_down (&lock->semaphore);
+    lock->holder = thread_current ();
+    cur->wait_on_lock = NULL;
+  }
+  else {
+    cur->wait_on_lock = NULL;
+    lock->holder = cur;
+    list_push_back(&cur->hold_locks, &lock->lock_elem);
+  }
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -239,6 +257,9 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
+  list_remove(&lock->lock_elem);
+  thread_update_priority(thread_current());
+  lock_update_priority(lock);
   sema_up (&lock->semaphore);
 }
 
@@ -363,4 +384,28 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
+}
+
+
+
+void lock_update_priority(struct lock *lock)
+{
+  int old_priority = lock->max_priority;
+  lock->max_priority = lock_get_donor_priority(lock);
+  if (old_priority != lock->max_priority && lock->holder != NULL) {
+    thread_update_priority(lock->holder);
+  }
+  if (list_empty(&lock->semaphore.waiters)) {
+    lock->max_priority = PRI_MIN;
+  }
+}
+
+static int lock_get_donor_priority(struct lock *lock)
+{
+  if (list_empty(&lock->semaphore.waiters)) {
+    return PRI_MIN;
+  }
+  else {
+    return list_entry(list_max(&lock->semaphore.waiters, cmp_priority, NULL), struct thread, elem)->priority;
+  }
 }

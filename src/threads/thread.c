@@ -75,6 +75,8 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static bool cmp_lock_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+static int thread_get_donor_priority(struct thread *t);
 
 /** Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -352,7 +354,20 @@ void
 thread_set_priority (int new_priority) 
 {
   struct thread *cur = thread_current();
-  cur->priority = new_priority;
+
+  if (list_empty(&cur->hold_locks)) {
+    cur->priority = new_priority;
+  }
+  else {
+    if (cur->original_priority == -1) {
+      cur->priority = new_priority;
+    }
+    else {
+      cur->priority = cur->original_priority = new_priority;
+      thread_update_priority(cur);
+    }
+  }
+
   enum intr_level old_level = intr_disable();
 //  list_sort(&ready_list, cmp_priority, NULL);
   struct list_elem *found = list_find(&ready_list, &cur->elem);
@@ -550,6 +565,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  list_init(&t->hold_locks);
+  t->original_priority = -1;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -679,6 +696,56 @@ bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *au
     return true;
   }
   else {
+    return false;
+  }
+}
+
+void thread_update_priority(struct thread *t)
+{
+
+  int old_priority = t->priority;
+  int max_priority = thread_get_donor_priority(t);
+
+  // We can't let t's priority lower than base_priority(original priority)
+  int base_priority = (t->original_priority == -1) ? t->priority : t->original_priority;
+  t->priority = (base_priority > max_priority) ? base_priority : max_priority;
+
+  // We do update the priority.
+  if (old_priority != t->priority) {
+    if (t->original_priority == -1) {
+      t->original_priority = old_priority;
+    }
+    if (t->wait_on_lock != NULL) {
+      lock_update_priority(t->wait_on_lock);
+    }
+  }
+
+  if (list_empty(&t->hold_locks)) {
+    t->priority = (t->original_priority == -1) ? t->priority : t->original_priority;
+    t->original_priority = -1;
+  }
+
+}
+
+int thread_get_donor_priority(struct thread *t)
+{
+  if (list_empty(&t->hold_locks)) {
+    return PRI_MIN;
+  }
+  else {
+    struct lock *max_lock = list_entry(list_max(&t->hold_locks, cmp_lock_elem_priority, NULL), struct lock, lock_elem);
+    return max_lock->max_priority;
+  }
+}
+
+static bool cmp_lock_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  int priority_a = list_entry(a, struct lock, lock_elem)->max_priority;
+  int priority_b = list_entry(b, struct lock, lock_elem)->max_priority;
+  if (priority_a < priority_b) {
+    return true;
+  }
+  else{
     return false;
   }
 }

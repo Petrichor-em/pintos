@@ -91,6 +91,9 @@ struct thread
     struct list_elem allelem;           /**< List element for all threads list. */
     int64_t wakeup_tick;                /**< The tick when this thread should wake up. */
     struct list_elem sleep_elem;        /**< Element for sleep list. */
+    struct lock *wait_on_lock;
+    struct list hold_locks;
+    int original_priority;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
@@ -148,5 +151,8 @@ int64_t get_soon_wakeup_tick(void);
 void set_soon_wakeup_tick(int64_t wake_tick);
 
 bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+
+void thread_update_priority(struct thread *t);
+
 
 #endif /**< threads/thread.h */

@@ -5,6 +5,6 @@
         "variant": "cpp",
         "istream": "c",
         "ostream": "c",
-        "print": "c"
+        "vaddr.h": "c"
     }
 }
