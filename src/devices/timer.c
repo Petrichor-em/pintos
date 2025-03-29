@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "../threads/init.h"
 
 /** See [8254] for hardware details of the 8254 timer chip. */
 
@@ -180,15 +181,49 @@ timer_interrupt (struct intr_frame *args UNUSED)
     Move them to the ready list if neccessary.
     Update the global tick.
   */
+
+  if (thread_mlfqs) {
+
+    struct thread *cur = thread_current();
+    // Every second.
+    if (timer_ticks() % TIMER_FREQ == 0) {
+//      printf("1 sec in load_avg\n");
+      load_avg = calculate_load_avg();
+    }
+    // Every timer intrrupt.
+    increase_recent_cpu(cur);
+    // Every second.
+    if (timer_ticks() % TIMER_FREQ == 0) {
+//      printf("1 sec in recent_cpu\n");
+      update_recent_cpu_all();
+    }
+    // Every 4 ticks.
+    if (timer_ticks() % 4 == 0) {
+      update_priority_all();
+    }
+    // For debug.
+    /*
+    if (timer_ticks() % 4 == 0) {
+      printf("%s:\n", cur->name);
+      printf("ticks: %lld\n", timer_ticks());
+      printf("load_avg: %d\n", q14_to_i_nearest(load_avg));
+      printf("recent cpu: %d\n", q14_to_i_nearest(cur->recent_cpu));
+      printf("nice: %d\n", cur->nice);
+      printf("priority: %d\n", cur->priority);
+      printf("--------------------------\n");
+    }
+    */
+  }
+
   int64_t soon_wakeup_tick = get_soon_wakeup_tick();
   if (soon_wakeup_tick != -1) {
-    if (soon_wakeup_tick <= ticks) {
+    if (soon_wakeup_tick <= timer_ticks()) {
       struct thread *t = NULL;
       struct list_elem *e = NULL;
       while (!list_empty(&sleep_list)) {
         e = list_front(&sleep_list);
         t = list_entry(e, struct thread, sleep_elem);
-        if (t->wakeup_tick > ticks) {
+        if (t->wakeup_tick > timer_ticks()) {
           break;
         }
         thread_unblock(t);

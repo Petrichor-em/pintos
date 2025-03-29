@@ -41,6 +41,9 @@
 /** Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
 
+/** System's average load. */
+Q14 load_avg;
+
 #ifdef FILESYS
 /** -f: Format the file system? */
 static bool format_filesys;
@@ -84,6 +87,8 @@ pintos_init (void)
   /* Break command line into arguments and parse options. */
   argv = read_command_line ();
   argv = parse_options (argv);
+
+  load_avg = 0;
 
   /* Initialize ourselves as a thread so we can use locks,
      then enable console locking. */

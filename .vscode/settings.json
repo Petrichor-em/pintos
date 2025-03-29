@@ -5,6 +5,13 @@
         "variant": "cpp",
         "istream": "c",
         "ostream": "c",
-        "vaddr.h": "c"
+        "vaddr.h": "c",
+        "palloc.h": "c",
+        "stddef.h": "c",
+        "stdint.h": "c",
+        "stdio.h": "c",
+        "thread.h": "c",
+        "fixed_point.h": "c",
+        "init.h": "c"
     }
 }
