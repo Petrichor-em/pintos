@@ -218,12 +218,13 @@ lock_acquire (struct lock *lock)
       }
       sema_down (&lock->semaphore);
       lock->holder = thread_current ();
+      list_push_front(&cur->hold_locks, &lock->lock_elem);
       cur->wait_on_lock = NULL;
     }
     else {
       cur->wait_on_lock = NULL;
       lock->holder = cur;
-      list_push_back(&cur->hold_locks, &lock->lock_elem);
+      list_push_front(&cur->hold_locks, &lock->lock_elem);
     }
   }
   else {

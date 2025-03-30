@@ -179,5 +179,7 @@ struct list_elem *list_max (struct list *, list_less_func *, void *aux);
 struct list_elem *list_min (struct list *, list_less_func *, void *aux);
 
 struct list_elem *list_find(struct list *, struct list_elem *);
+/* For debug, to check if LIST has been broken, becase of synch problem or whatever else. */
+void list_check(struct list *list);
 
 #endif /**< lib/kernel/list.h */

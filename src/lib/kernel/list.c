@@ -532,3 +532,22 @@ struct list_elem *list_find(struct list *list, struct list_elem *e)
   }
   return cur;
 }
+
+void list_check(struct list* list)
+{
+  int num = 0;
+  int rnum = 0;
+  struct list_elem *beg = list_begin(list);
+  struct list_elem *end = list_end(list);
+  while (beg != end) {
+    ++num;
+    beg = list_next(beg);
+  }
+  struct list_elem *rbeg = list_rbegin(list);
+  struct list_elem *rend = list_rend(list);
+  while (rbeg != rend) {
+    ++rnum;
+    rbeg = list_prev(rbeg);
+  }
+  ASSERT (num == rnum);
+}
