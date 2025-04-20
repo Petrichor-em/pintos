@@ -5,6 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 #include <fixed_point.h>
+#include "synch.h"
+#include <hash.h>
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -97,6 +99,14 @@ struct thread
     int original_priority;
     int nice;
     Q14 recent_cpu;
+    int exit_status;
+    bool is_user_process;
+    struct list childs;
+    struct list_elem child_elem;
+    struct thread *parent;
+    bool is_waited;
+    struct semaphore wait_exit_sema;
+    struct semaphore load_sema;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
@@ -109,6 +119,21 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /**< Detects stack overflow. */
   };
+
+struct process_info {
+   tid_t self_tid;
+   tid_t parent_tid;
+   int exit_status;
+   struct hash_elem process_info_elem;
+};
+
+struct hash process_info_hashtable;
+
+unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED);
+
+bool process_info_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
+
+struct process_info *get_process_info_by_tid(tid_t tid);
 
 /** If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -164,5 +189,7 @@ void update_recent_cpu_all();
 Q14 calculate_load_avg();
 
 void increase_recent_cpu(struct thread *t);
+
+struct thread *get_child_by_tid(child_tid);
 
 #endif /**< threads/thread.h */

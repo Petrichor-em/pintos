@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #include "fixed_point.h"
 #include "init.h"
+#include "malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -116,6 +117,8 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init(&sleep_list);
+//  list_init(&process_info_list);
+//  hash_init(&process_info_hashtable, process_info_hash, process_info_less, NULL);
   for (int i = PRI_MIN; i <= PRI_MAX; ++i) {
     list_init(&mlfqs[i]);
   }
@@ -230,18 +233,20 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  t->nice = thread_current()->nice;
-  t->recent_cpu = thread_current()->recent_cpu;
+  struct thread *cur = thread_current();
+  t->nice = cur->nice;
+  t->recent_cpu = cur->recent_cpu;
   if (thread_mlfqs) {
     t->priority = calculate_priority(t);
   }
+  t->parent = cur;
+  list_push_back(&cur->childs, &t->child_elem);
   /* Add to run queue. */
   thread_unblock (t);
   /* TODO:
     Compare the priorities of the currently running thread and the newly inserted one.
     Yield the CPU if the newly arriving thread has higher priority.
   */
-  struct thread *cur = thread_current();
   if (t->priority > cur->priority) {
     thread_yield();
   }
@@ -341,11 +346,65 @@ thread_exit (void)
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
-  intr_disable ();
-  list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;
+
+  // What if parent process exit but its childs are still running?
+  struct thread *cur = thread_current();
+  if (cur->parent) {
+    sema_up(&cur->wait_exit_sema);
+  }
+  intr_disable();
+  if (cur->parent) {
+    list_remove(&cur->child_elem);
+  }
+  struct list_elem *e;
+  for (e = list_begin(&cur->childs); e != list_end(&cur->childs); e = list_next(e)) {
+    struct thread *child = list_entry(e, struct thread, child_elem);
+    child->parent = NULL;
+    remove_and_free_process_info_by_tid(child->tid);
+  }
+
+  // How can we release all the locks when we exit?
+
+  list_remove (&cur->allelem);
+  cur->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
+}
+
+struct process_info *get_process_info_by_tid(tid_t tid)
+{
+  ASSERT (intr_get_level() == INTR_OFF);
+
+//  struct list_elem *e;
+//  for (e = list_begin(&process_info_list); e != list_end(&process_info_list); e = list_next(e)) {
+//    struct process_info *process_info = list_entry(e, struct process_info, process_info_elem);
+//    if (process_info->self_tid == tid) {
+//      return process_info;
+//    }
+//  }
+  struct process_info lookup;
+  lookup.self_tid = tid;
+  struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);
+  if (e != NULL) {
+    struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
+    return process_info;
+  } else {
+    return NULL;
+  }
+}
+
+void remove_and_free_process_info_by_tid(tid_t tid)
+{
+  ASSERT (intr_get_level() == INTR_OFF);
+
+  struct process_info lookup;
+  lookup.self_tid = tid;
+  struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);
+  if (e != NULL) {
+    struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
+    hash_delete(&process_info_hashtable, e);
+    free(process_info);
+  }
 }
 
 /** Yields the CPU.  The current thread is not put to sleep and
@@ -619,6 +678,13 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   list_init(&t->hold_locks);
   t->original_priority = -1;
+  t->exit_status = -1;
+  t->is_user_process = false;
+  list_init(&t->childs);
+  t->parent = NULL;
+  t->is_waited = false;
+  sema_init(&t->wait_exit_sema, 0);
+  sema_init(&t->load_sema, 0);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -935,4 +1001,31 @@ void update_recent_cpu_all()
     }
     e = list_next(e);
   }
+}
+
+unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED)
+{
+
+   const struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
+   return hash_int(process_info->self_tid);
+}
+
+bool process_info_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+{
+   const struct process_info *info_a = hash_entry(a, struct process_info, process_info_elem);
+   const struct process_info *info_b = hash_entry(b, struct process_info, process_info_elem);
+   return info_a->self_tid < info_b->self_tid;
+}
+
+struct thread *get_child_by_tid(child_tid)
+{
+  struct list_elem *e;
+  struct thread *cur = thread_current();
+  for (e = list_begin(&cur->childs); e != list_end(&cur->childs); e = list_next(e)) {
+    struct thread *child = list_entry(e, struct thread, child_elem);
+    if (child->tid == child_tid) {
+      return child;
+    }
+  }
+  return NULL;
 }

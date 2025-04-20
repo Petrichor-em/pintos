@@ -18,49 +18,148 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define MAX_TOKENS 32
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
+{
+ char *token, *save_ptr;
+ int pos = 0;
+ for (token = strtok_r(s, delim, &save_ptr);
+      token != NULL;
+      token = strtok_r(NULL, delim, &save_ptr), ++pos) {
+    cmd_tokens[pos] = token;
+  }
+  cmd_tokens[pos] = NULL;
+}
 
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
+
+struct start_process_args {
+  bool *load_success;
+  char *file_name;
+};
+
 tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
+    /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  // Make another copy of FILE_NAME.
+  char *_file_name = palloc_get_page(0);
+  if (_file_name == NULL) {
+    return TID_ERROR;
+  }
+  strlcpy(_file_name, file_name, PGSIZE);
+  
+  char *first_token, *save_ptr;
+  first_token = strtok_r(_file_name, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  struct start_process_args args;
+  bool load_result = false;
+  args.load_success =&load_result;
+  args.file_name = fn_copy;
+  tid = thread_create (first_token, PRI_DEFAULT, start_process, &args);
+  sema_down(&thread_current()->load_sema);
+  if (!args.load_success) {
+    tid = TID_ERROR;
+  }
+  palloc_free_page(_file_name);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  sema_down(&thread_current()->load_sema);
   return tid;
 }
 
 /** A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *aux)
 {
-  char *file_name = file_name_;
+  struct start_process_args *args = aux;
+  struct thread *cur = thread_current();
+  cur->is_user_process = true;
+  struct process_info *process_info = malloc (sizeof (struct process_info));
+  process_info->exit_status = -1;
+  process_info->parent_tid = cur->parent->tid;
+  process_info->self_tid = cur->tid;
+//  list_push_back(&process_info_list, &process_info->process_info_elem);
+  hash_insert(&process_info_hashtable, &process_info->process_info_elem);
+  char *file_name = args->file_name;
   struct intr_frame if_;
   bool success;
+
+  char *cmd_tokens[MAX_TOKENS];
+  tokenize_cmd(file_name, " ", cmd_tokens);
+  int tail = 0;
+  while (cmd_tokens[tail] != NULL) {
+    ++tail;
+  }
+  --tail;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
-
+  success = load (cmd_tokens[0], &if_.eip, &if_.esp);
+  if (success) {
+    args->load_success = true;
+  } else {
+    args->load_success = false;
+  }
+  sema_up(&cur->parent->load_sema);
+  if (!success) {
+    thread_exit();
+  }
+  
+  int argc = tail + 1;
+  int sum_of_length = 0;
+  int index = tail;
+  while (index >= 0) {
+    int length = strlen(cmd_tokens[index]);
+    sum_of_length += (length + 1);
+    if_.esp -= (length + 1);
+    strlcpy(if_.esp, cmd_tokens[index], length + 1);
+    cmd_tokens[index] = if_.esp;
+    --index;
+  }
+  int padding = 0;
+  if (sum_of_length % 4 != 0) {
+    padding = (sum_of_length / 4 + 1) * 4 - sum_of_length;
+  }
+  if_.esp -= padding;
+  memset(if_.esp, 0, padding);
+  if_.esp -= sizeof(char *);
+  *(char **)if_.esp = 0;
+  index = tail;
+  while (index >= 0) {
+    if_.esp -= sizeof (char *);
+    *(char **)if_.esp = cmd_tokens[index];
+    --index;
+  }
+  char **argv = (char **)if_.esp;
+  if_.esp -= sizeof (char **);
+  *(char ***)if_.esp = argv;
+  if_.esp -= sizeof (int);
+  *(int *)if_.esp = argc;
+  if_.esp -= sizeof (void (*) ());
+  *(void (**) ())if_.esp = 0;
+  
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
@@ -88,6 +187,25 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  struct thread *cur = thread_current();
+  struct thread *child = get_child_by_tid(child_tid);
+  if (child) {
+    if (child->is_waited) {
+      return -1;
+    }
+    child->is_waited = true;
+    sema_down(&child->wait_exit_sema);
+  }
+
+  enum intr_level old_level = intr_disable();
+  struct process_info *info = get_process_info_by_tid(child_tid);
+  if (info && info->parent_tid == cur->tid) {
+    int exit_status = info->exit_status;
+    remove_and_free_process_info_by_tid(child_tid);
+    intr_set_level(old_level);
+    return exit_status;
+  }
+  intr_set_level(old_level);
   return -1;
 }
 
@@ -114,6 +232,15 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+    // Store exit_status in process_info.
+    enum intr_level old_level = intr_disable();
+    struct process_info *info = get_process_info_by_tid(cur->tid);
+    if (info) {
+      info->exit_status = cur->exit_status;
+    }
+    intr_set_level(old_level);
+    printf("%s: exit(%d)\n", cur->name, cur->exit_status);
+    sema_up(&cur->parent->load_sema);
 }
 
 /** Sets up the CPU for running user code in the current
