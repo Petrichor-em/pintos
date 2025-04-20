@@ -117,6 +117,7 @@ start_process (void *aux)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (cmd_tokens[0], &if_.eip, &if_.esp);
+  cur->load_success = success;
   if (success) {
     args->load_success = true;
   } else {
@@ -162,8 +163,7 @@ start_process (void *aux)
   
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
+  sema_up(&cur->parent->load_sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -240,7 +240,9 @@ process_exit (void)
     }
     intr_set_level(old_level);
     printf("%s: exit(%d)\n", cur->name, cur->exit_status);
-    sema_up(&cur->parent->load_sema);
+    if (!cur->load_success) {
+      sema_up(&cur->parent->load_sema);
+    }
 }
 
 /** Sets up the CPU for running user code in the current

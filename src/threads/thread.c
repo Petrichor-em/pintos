@@ -685,6 +685,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->is_waited = false;
   sema_init(&t->wait_exit_sema, 0);
   sema_init(&t->load_sema, 0);
+  t->load_success = false;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

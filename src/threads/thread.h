@@ -107,6 +107,7 @@ struct thread
     bool is_waited;
     struct semaphore wait_exit_sema;
     struct semaphore load_sema;
+    bool load_success;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
