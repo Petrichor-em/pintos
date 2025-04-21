@@ -11,6 +11,10 @@
 #include "lib/user/syscall.h"
 #include <console.h>
 #include <string.h>
+#include "threads/synch.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "devices/serial.h"
 
 static void syscall_handler (struct intr_frame *);
 static void parse_stack(void *stack_ptr, void **stack_frame_ptrs, int cnt);
@@ -18,10 +22,13 @@ static void validate_addr(void *addr);
 static void validate_string_addr(char *addr);
 static void handle_illegal_memory_access(void);
 
+struct lock filesys_lock;
+
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&filesys_lock);
 }
 
 static void parse_stack(void *stack_ptr, void **stack_frame_ptrs, int cnt)
@@ -87,6 +94,12 @@ syscall_handler (struct intr_frame *f UNUSED)
   uint32_t syscall_no = *(uint32_t *)esp;
   esp += 4; // Now esp points to ARG0.
   struct thread *cur = thread_current();
+  struct file *file;
+  int fd = -1; // Assume that the file fd can't be open.
+  int cnt = 0;
+  void *buffer_addr = NULL;
+  uint8_t byte = 0;
+  int bytes_read = 0;
 //  printf("SYSCALL_NO: %d\n", syscall_no);
 
   switch (syscall_no) {
@@ -97,14 +110,25 @@ syscall_handler (struct intr_frame *f UNUSED)
       validate_string_addr(*(char **)stack_frame_ptrs[0]);
       break;
     case SYS_CLOSE:
-      printf("close() called\n");
+//      printf("close() called\n");
+      parse_stack(esp, stack_frame_ptrs, 1);
       validate_args_addr(esp, 1);
+      fd = *(int *)stack_frame_ptrs[0];
+      if (fd > 2 && fd < FDT_SIZE && cur->fdt[fd]) {
+        lock_acquire(&filesys_lock);
+        file_close(cur->fdt[fd]);
+        lock_release(&filesys_lock);
+        cur->fdt[fd] = NULL;
+      }
       break;
     case SYS_CREATE:
-      printf("create() called\n");
+//      printf("create() called\n");
       parse_stack(esp, stack_frame_ptrs, 2);
       validate_args_addr(esp, 2);
       validate_string_addr(*(char **)stack_frame_ptrs[0]);
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_create(*(char **)stack_frame_ptrs[0], *(unsigned *)stack_frame_ptrs[1]);
+      lock_release(&filesys_lock);
       break;
     case SYS_EXEC:
 //      printf("exec() called\n");
@@ -122,8 +146,16 @@ syscall_handler (struct intr_frame *f UNUSED)
       thread_exit();
       break;
     case SYS_FILESIZE:
-      printf("filesize() called\n");
+      parse_stack(esp, stack_frame_ptrs, 1);
       validate_args_addr(esp, 1);
+      fd = *(int *)stack_frame_ptrs[0];
+      if (fd > 2 && fd < FDT_SIZE && cur->fdt[fd]) {
+        lock_acquire(&filesys_lock);
+        f->eax = file_length(cur->fdt[fd]);
+        lock_release(&filesys_lock);
+      } else {
+        f->eax = -1;
+      }
       break;
     case SYS_HALT:
 //      printf("halt() called\n");
@@ -154,16 +186,51 @@ syscall_handler (struct intr_frame *f UNUSED)
       validate_args_addr(esp, 1);
       break;
     case SYS_OPEN:
-      printf("open() called\n");
+//      printf("open() called\n");
       parse_stack(esp, stack_frame_ptrs, 1);
       validate_args_addr(esp, 1);
       validate_string_addr(*(char **)stack_frame_ptrs[0]);
+      lock_acquire(&filesys_lock);
+      file = filesys_open(*(char **)stack_frame_ptrs[0]);
+      lock_release(&filesys_lock);
+      if (file) {
+        for (int i = 3; i < FDT_SIZE; ++i) {
+          if (!cur->fdt[i]) {
+            fd = i;
+            cur->fdt[i] = file;
+            break;
+          }
+        }
+      }
+      f->eax = fd;
       break;
     case SYS_READ:
-      printf("read() called\n");
+//      printf("read() called\n");
       parse_stack(esp, stack_frame_ptrs, 3);
       validate_args_addr(esp, 3);
       validate_buffer_addr(*(void **)stack_frame_ptrs[1], *(unsigned *)stack_frame_ptrs[2]);
+      fd = *(int *)stack_frame_ptrs[0];
+      if (fd > 2 && fd < FDT_SIZE && cur->fdt[fd]) {
+        lock_acquire(&filesys_lock);
+        f->eax = file_read(cur->fdt[fd], *(void **)stack_frame_ptrs[1], *(unsigned *)stack_frame_ptrs[2]);
+        lock_release(&filesys_lock);
+      } else if (fd == 0) {
+        cnt = *(unsigned *)stack_frame_ptrs[2];
+        buffer_addr = *(void **)stack_frame_ptrs[1];
+        while (cnt > 0) {
+          byte = input_getc();
+          if (byte == -1) {
+            break;
+          }
+          *(uint8_t *)buffer_addr = byte;
+          ++buffer_addr;
+          ++bytes_read;
+          --cnt;
+        }
+        f->eax = bytes_read;
+      } else {
+        f->eax = -1;
+      }
       break;
     case SYS_READDIR:
       printf("readdir() called\n");
@@ -172,18 +239,35 @@ syscall_handler (struct intr_frame *f UNUSED)
       validate_addr(*(char **)stack_frame_ptrs[1]);
       break;
     case SYS_REMOVE:
-      printf("remove() called\n");
+//      printf("remove() called\n");
       parse_stack(esp, stack_frame_ptrs, 1);
       validate_args_addr(esp, 1);
       validate_string_addr(*(char **)stack_frame_ptrs[0]);
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_remove(*(char **)stack_frame_ptrs[0]);
+      lock_release(&filesys_lock);
       break;
     case SYS_SEEK:
-      printf("seek() called\n");
+//      printf("seek() called\n");
+      parse_stack(esp, stack_frame_ptrs, 2);
       validate_args_addr(esp, 2);
+      fd = *(int *)stack_frame_ptrs[0];
+      if (fd > 2 && fd < FDT_SIZE && cur->fdt[fd]) {
+        lock_acquire(&filesys_lock);
+        file_seek(cur->fdt[fd], *(unsigned *)stack_frame_ptrs[1]);
+        lock_release(&filesys_lock);
+      }
       break;
     case SYS_TELL:
-      printf("tell() called\n");
+//      printf("tell() called\n");
+      parse_stack(esp, stack_frame_ptrs, 2);
       validate_args_addr(esp, 1);
+      fd = *(int *)stack_frame_ptrs[0];
+      if (fd > 2 && fd < FDT_SIZE && cur->fdt[fd]) {
+        lock_acquire(&filesys_lock);
+        f->eax = file_tell(cur->fdt[fd]);
+        lock_release(&filesys_lock);
+      }
       break;
     case SYS_WAIT:
 //      printf("wait() called\n");
@@ -196,8 +280,19 @@ syscall_handler (struct intr_frame *f UNUSED)
       parse_stack(esp, stack_frame_ptrs, 3);
       validate_args_addr(esp, 3);
       validate_buffer_addr(*(void **)stack_frame_ptrs[1], *(unsigned *)stack_frame_ptrs[2]);
-      if (*(int *)stack_frame_ptrs[0] == 1) {
-        printf("%s", *(char **)stack_frame_ptrs[1]);
+      fd = *(int *)stack_frame_ptrs[0];
+      if (fd > 2 && fd < FDT_SIZE && cur->fdt[fd]) {
+        lock_acquire(&filesys_lock);
+        f->eax = file_write(cur->fdt[fd], *(void **)stack_frame_ptrs[1], *(unsigned *)stack_frame_ptrs[2]);
+        lock_release(&filesys_lock);
+      } else if (fd == 1 || fd == 2) {
+        putbuf(*(char **)stack_frame_ptrs[1], *(unsigned *)stack_frame_ptrs[2]);
+        if (fd == 2) {
+          serial_flush();
+        }
+        f->eax = *(unsigned *)stack_frame_ptrs[2];
+      } else {
+        f->eax = -1;
       }
       break;
     default:

@@ -108,6 +108,8 @@ struct thread
     struct semaphore wait_exit_sema;
     struct semaphore load_sema;
     bool load_success;
+    struct file **fdt;
+    struct file *running_file;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */

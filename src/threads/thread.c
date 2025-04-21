@@ -352,18 +352,23 @@ thread_exit (void)
   if (cur->parent) {
     sema_up(&cur->wait_exit_sema);
   }
+
+  // How can we release all the locks when we exit?
+  struct list_elem *e;
+  for (e = list_begin(&cur->hold_locks); e != list_end(&cur->hold_locks); e = list_next(e)) {
+    struct lock *lock = list_entry(e, struct lock, lock_elem);
+    lock_release(lock);
+  }
+
   intr_disable();
   if (cur->parent) {
     list_remove(&cur->child_elem);
   }
-  struct list_elem *e;
   for (e = list_begin(&cur->childs); e != list_end(&cur->childs); e = list_next(e)) {
     struct thread *child = list_entry(e, struct thread, child_elem);
     child->parent = NULL;
     remove_and_free_process_info_by_tid(child->tid);
   }
-
-  // How can we release all the locks when we exit?
 
   list_remove (&cur->allelem);
   cur->status = THREAD_DYING;
@@ -690,6 +695,8 @@ init_thread (struct thread *t, const char *name, int priority)
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+  t->fdt = NULL;
+  t->running_file = NULL;
 }
 
 /** Allocates a SIZE-byte frame at the top of thread T's stack and

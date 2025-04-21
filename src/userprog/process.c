@@ -41,7 +41,7 @@ void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
    thread id, or TID_ERROR if the thread cannot be created. */
 
 struct start_process_args {
-  bool *load_success;
+  bool load_success;
   char *file_name;
 };
 
@@ -93,6 +93,8 @@ start_process (void *aux)
   struct start_process_args *args = aux;
   struct thread *cur = thread_current();
   cur->is_user_process = true;
+  cur->fdt = malloc(FDT_SIZE * sizeof (struct file *));
+  memset(cur->fdt, 0, FDT_SIZE * sizeof (struct file *));
   struct process_info *process_info = malloc (sizeof (struct process_info));
   process_info->exit_status = -1;
   process_info->parent_tid = cur->parent->tid;
@@ -239,6 +241,17 @@ process_exit (void)
       info->exit_status = cur->exit_status;
     }
     intr_set_level(old_level);
+    if (cur->load_success) {
+      for (int i = 3; i < FDT_SIZE; ++i) {
+        if (cur->fdt[i]) {
+          file_close(cur->fdt[i]);
+        }
+      }
+    }
+    if (cur->running_file) {
+      file_close(cur->running_file);
+    }
+    free(cur->fdt);
     printf("%s: exit(%d)\n", cur->name, cur->exit_status);
     if (!cur->load_success) {
       sema_up(&cur->parent->load_sema);
@@ -352,11 +365,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   file = filesys_open (file_name);
+  thread_current()->running_file = file;
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  file_deny_write(file);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -441,7 +456,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
