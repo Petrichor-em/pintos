@@ -22,8 +22,6 @@ static void validate_addr(void *addr);
 static void validate_string_addr(char *addr);
 static void handle_illegal_memory_access(void);
 
-struct lock filesys_lock;
-
 void
 syscall_init (void) 
 {

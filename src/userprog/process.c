@@ -20,6 +20,8 @@
 
 #define MAX_TOKENS 32
 
+struct lock filesys_lock;
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -364,6 +366,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire(&filesys_lock);
   file = filesys_open (file_name);
   thread_current()->running_file = file;
   if (file == NULL) 
@@ -456,6 +459,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
+    lock_release(&filesys_lock);
   return success;
 }
 
