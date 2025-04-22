@@ -211,6 +211,15 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+
+  // SEVERE PROBLEM!!!
+  // We have to disble intrrupt to allow thread donation!
+  // Because update lock and thread's priority will change other threads' priority.
+  // Also, a lock's priority may be changed by several threads simutaneously, causing severe cacing problem.
+  // We should disable intrrupt in lock_release() also.
+
+  enum intr_level old_level = intr_disable();
+
   if (!thread_mlfqs) {
     struct thread *cur = thread_current();
     bool success = lock_try_acquire(lock);
@@ -235,6 +244,9 @@ lock_acquire (struct lock *lock)
     sema_down(&lock->semaphore);
     lock->holder = thread_current();
   }
+
+  intr_set_level(old_level);
+
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -268,6 +280,8 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable();
+
   if (!thread_mlfqs) {
     lock->holder = NULL;
     list_remove(&lock->lock_elem);
@@ -279,6 +293,9 @@ lock_release (struct lock *lock)
     lock->holder = NULL;
     sema_up(&lock->semaphore);
   }
+
+  intr_set_level(old_level);
+
 }
 
 /** Returns true if the current thread holds LOCK, false

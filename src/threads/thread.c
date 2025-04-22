@@ -380,13 +380,6 @@ struct process_info *get_process_info_by_tid(tid_t tid)
 {
   ASSERT (intr_get_level() == INTR_OFF);
 
-//  struct list_elem *e;
-//  for (e = list_begin(&process_info_list); e != list_end(&process_info_list); e = list_next(e)) {
-//    struct process_info *process_info = list_entry(e, struct process_info, process_info_elem);
-//    if (process_info->self_tid == tid) {
-//      return process_info;
-//    }
-//  }
   struct process_info lookup;
   lookup.self_tid = tid;
   struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);

@@ -5,7 +5,7 @@
 
 #define FDT_SIZE 64
 
-struct lock filesys_lock;
+extern struct lock filesys_lock;
 
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
