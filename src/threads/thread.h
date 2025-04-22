@@ -181,18 +181,20 @@ int thread_get_load_avg (void);
 int64_t get_soon_wakeup_tick(void);
 void set_soon_wakeup_tick(int64_t wake_tick);
 
-bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 void thread_update_priority(struct thread *t);
 
-void update_priority_all();
+void update_priority_all(void);
 
-void update_recent_cpu_all();
+void update_recent_cpu_all(void);
 
-Q14 calculate_load_avg();
+Q14 calculate_load_avg(void);
 
 void increase_recent_cpu(struct thread *t);
 
-struct thread *get_child_by_tid(child_tid);
+struct thread *get_child_by_tid(tid_t child_tid);
+
+void remove_and_free_process_info_by_tid(tid_t tid);
 
 #endif /**< threads/thread.h */

@@ -50,10 +50,10 @@ static struct list mlfqs[PRI_MAX + 1];
 static int calculate_priority(struct thread *t);
 
 /** Get the highest-priority-thread. If there is not, return NULL. */
-static struct thread *get_highest_priority_thread();
+static struct thread *get_highest_priority_thread(void);
 
 /** Get number of ready_threads. */
-static int get_num_ready_threads();
+static int get_num_ready_threads(void);
 
 static Q14 calculate_recent_cpu(struct thread *t);
 
@@ -92,7 +92,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-static bool cmp_lock_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+static bool cmp_lock_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 static int thread_get_donor_priority(struct thread *t);
 
 /** Initializes the threading system by transforming the code
@@ -502,7 +502,6 @@ thread_set_nice (int nice UNUSED)
 
   struct thread *cur = thread_current();
   cur->nice = nice;
-  int new_priority = calculate_priority(cur);
   struct thread *highest = get_highest_priority_thread();
   if (highest != NULL && highest->priority > cur->priority) {
     thread_yield();
@@ -545,7 +544,7 @@ void set_soon_wakeup_tick(int64_t wakeup_tick)
 
 static bool wakeup_tick_less(const struct list_elem *a,
                              const struct list_elem *b,
-                             void *aux)
+                             void *aux UNUSED)
 {
   int64_t wakeup_tick_a = list_entry(a, struct thread, sleep_elem)->wakeup_tick;
   int64_t wakeup_tick_b = list_entry(b, struct thread, sleep_elem)->wakeup_tick;
@@ -820,7 +819,7 @@ allocate_tid (void)
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
 /** Compare two elems' priority */
-bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   int priority_a = list_entry(a, struct thread, elem)->priority;
   int priority_b = list_entry(b, struct thread, elem)->priority;
@@ -870,7 +869,7 @@ int thread_get_donor_priority(struct thread *t)
   }
 }
 
-struct thread *get_highest_priority_thread()
+struct thread *get_highest_priority_thread(void)
 {
   for (int i = PRI_MAX; i >= PRI_MIN; --i) {
     if (!list_empty(&mlfqs[i])) {
@@ -880,7 +879,7 @@ struct thread *get_highest_priority_thread()
   return NULL;
 }
 
-int get_num_ready_threads()
+int get_num_ready_threads(void)
 {
   int num = 0;
   struct thread *t = NULL;
@@ -897,7 +896,7 @@ int get_num_ready_threads()
   return num;
 }
 
-static bool cmp_lock_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+bool cmp_lock_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   int priority_a = list_entry(a, struct lock, lock_elem)->max_priority;
   int priority_b = list_entry(b, struct lock, lock_elem)->max_priority;
@@ -931,7 +930,7 @@ int calculate_priority(struct thread *t)
 }
 
 
-Q14 calculate_load_avg()
+Q14 calculate_load_avg(void)
 {
   Q14 fifty_nine = i_to_q14(59);
   Q14 sixty = i_to_q14(60);
@@ -967,7 +966,7 @@ void increase_recent_cpu(struct thread *t)
   t->recent_cpu = new_recent_cpu;
 }
 
-void update_priority_all()
+void update_priority_all(void)
 {
   ASSERT (intr_get_level() == INTR_OFF);
 
@@ -989,7 +988,7 @@ void update_priority_all()
   }
 }
 
-void update_recent_cpu_all()
+void update_recent_cpu_all(void)
 {
   ASSERT (intr_get_level() == INTR_OFF);
 
@@ -1018,7 +1017,7 @@ bool process_info_less(const struct hash_elem *a, const struct hash_elem *b, voi
    return info_a->self_tid < info_b->self_tid;
 }
 
-struct thread *get_child_by_tid(child_tid)
+struct thread *get_child_by_tid(tid_t child_tid)
 {
   struct list_elem *e;
   struct thread *cur = thread_current();

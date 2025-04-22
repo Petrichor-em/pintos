@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 #define MAX_TOKENS 32
 
@@ -25,7 +26,7 @@ struct lock filesys_lock;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
+static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
 {
  char *token, *save_ptr;
  int pos = 0;
@@ -72,8 +73,7 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   struct start_process_args args;
-  bool load_result = false;
-  args.load_success =&load_result;
+  args.load_success = false;
   args.file_name = fn_copy;
   tid = thread_create (first_token, PRI_DEFAULT, start_process, &args);
   sema_down(&thread_current()->load_sema);
@@ -162,8 +162,8 @@ start_process (void *aux)
   *(char ***)if_.esp = argv;
   if_.esp -= sizeof (int);
   *(int *)if_.esp = argc;
-  if_.esp -= sizeof (void (*) ());
-  *(void (**) ())if_.esp = 0;
+  if_.esp -= sizeof (void (*) (void));
+  *(void (**) (void))if_.esp = 0;
   
   /* If load failed, quit. */
   palloc_free_page (file_name);

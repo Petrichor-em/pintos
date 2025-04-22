@@ -9,7 +9,7 @@
 #include "devices/shutdown.h"
 #include <stdio.h>
 #include "lib/user/syscall.h"
-#include <console.h>
+#include "lib/kernel/console.h"
 #include <string.h>
 #include "threads/synch.h"
 #include "filesys/filesys.h"
@@ -17,7 +17,6 @@
 #include "devices/serial.h"
 
 static void syscall_handler (struct intr_frame *);
-static void parse_stack(void *stack_ptr, void **stack_frame_ptrs, int cnt);
 static void validate_addr(const void *addr);
 static void validate_string_addr(const char *addr);
 static void handle_illegal_memory_access(void);
@@ -46,7 +45,7 @@ static void validate_args_addr(const uint32_t *argv, int cnt)
 
 static void validate_string_addr(const char *addr)
 {
-  char *s = addr;
+  const char *s = addr;
   validate_addr(s);
   while (*s) {
     ++s;
@@ -194,7 +193,7 @@ syscall_handler (struct intr_frame *f UNUSED)
         buffer_addr = (void *)argv[1];
         while (cnt > 0) {
           byte = input_getc();
-          if (byte == -1) {
+          if (byte == (uint8_t)-1) {
             break;
           }
           *(uint8_t *)buffer_addr = byte;

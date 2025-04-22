@@ -214,8 +214,8 @@ lock_acquire (struct lock *lock)
 
   // SEVERE PROBLEM!!!
   // We have to disble intrrupt to allow thread donation!
-  // Because update lock and thread's priority will change other threads' priority.
-  // Also, a lock's priority may be changed by several threads simutaneously, causing severe cacing problem.
+  // Because updating lock and thread's priority will change other threads' priority.
+  // Also, a lock's priority may be changed by several threads simutaneously, causing severe racing problem.
   // We should disable intrrupt in lock_release() also.
 
   enum intr_level old_level = intr_disable();
@@ -349,7 +349,7 @@ cond_init (struct condition *cond)
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 
-static bool cmp_cond_waiter_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+static bool cmp_cond_waiter_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *thread_a = list_entry(a, struct semaphore_elem, elem)->t;
   struct thread *thread_b = list_entry(b, struct semaphore_elem, elem)->t;
