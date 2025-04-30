@@ -32,7 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-static int lock_get_donor_priority(struct lock *lock);
+/** Get the maximum priority of the lock's donors. */
+static int get_lock_donor_priority(struct lock *lock);
 
 /** Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -71,7 +72,7 @@ sema_down (struct semaphore *sema)
   while (sema->value == 0) 
     {
 //      list_push_back (&sema->waiters, &thread_current ()->elem);
-      list_insert_ordered(&sema->waiters, &thread_current()->elem, cmp_priority, NULL);
+      list_insert_ordered(&sema->waiters, &thread_current()->elem, cmp_thread_elem_priority, NULL);
       thread_block ();
     }
   sema->value--;
@@ -117,7 +118,7 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   struct thread *unblocked = NULL;
-  list_sort(&sema->waiters, cmp_priority, NULL);
+  list_sort(&sema->waiters, cmp_thread_elem_priority, NULL);
   if (!list_empty (&sema->waiters)) {
     unblocked = list_entry(list_front(&sema->waiters), struct thread, elem);
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
@@ -349,7 +350,7 @@ cond_init (struct condition *cond)
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 
-static bool cmp_cond_waiter_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+static bool cmp_cond_waiter_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *thread_a = list_entry(a, struct semaphore_elem, elem)->t;
   struct thread *thread_b = list_entry(b, struct semaphore_elem, elem)->t;
@@ -375,7 +376,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   waiter.t = thread_current();
 //  list_push_back (&cond->waiters, &waiter.elem);
   enum intr_level old_level = intr_disable();
-  list_insert_ordered(&cond->waiters, &waiter.elem, cmp_cond_waiter_priority, NULL);
+  list_insert_ordered(&cond->waiters, &waiter.elem, cmp_cond_waiter_elem_priority, NULL);
   intr_set_level(old_level);
   lock_release (lock);
   sema_down (&waiter.semaphore);
@@ -398,7 +399,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   enum intr_level old_level = intr_disable();
-  list_sort(&cond->waiters, cmp_cond_waiter_priority, NULL);
+  list_sort(&cond->waiters, cmp_cond_waiter_elem_priority, NULL);
   intr_set_level(old_level);
   if (!list_empty (&cond->waiters)) 
     sema_up (&list_entry (list_pop_front (&cond->waiters),
@@ -421,12 +422,10 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
-
-
 void lock_update_priority(struct lock *lock)
 {
   int old_priority = lock->max_priority;
-  lock->max_priority = lock_get_donor_priority(lock);
+  lock->max_priority = get_lock_donor_priority(lock);
   if (old_priority != lock->max_priority && lock->holder != NULL) {
     thread_update_priority(lock->holder);
   }
@@ -435,12 +434,12 @@ void lock_update_priority(struct lock *lock)
   }
 }
 
-static int lock_get_donor_priority(struct lock *lock)
+static int get_lock_donor_priority(struct lock *lock)
 {
   if (list_empty(&lock->semaphore.waiters)) {
     return PRI_MIN;
   }
   else {
-    return list_entry(list_max(&lock->semaphore.waiters, cmp_priority, NULL), struct thread, elem)->priority;
+    return list_entry(list_max(&lock->semaphore.waiters, cmp_thread_elem_priority, NULL), struct thread, elem)->priority;
   }
 }

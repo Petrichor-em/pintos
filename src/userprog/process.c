@@ -192,7 +192,7 @@ int
 process_wait (tid_t child_tid UNUSED) 
 {
   struct thread *cur = thread_current();
-  struct thread *child = get_child_by_tid(child_tid);
+  struct thread *child = thread_get_child_by_tid(child_tid);
   if (child) {
     if (child->is_waited) {
       return -1;
@@ -236,6 +236,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
     // Store exit_status in process_info.
     enum intr_level old_level = intr_disable();
     struct process_info *info = get_process_info_by_tid(cur->tid);
@@ -243,6 +244,10 @@ process_exit (void)
       info->exit_status = cur->exit_status;
     }
     intr_set_level(old_level);
+
+    // Free file descriptor table.
+    // Note that if the current thread fails to load, it won't open any file.
+    // So before we close all the files it has open, we check if it succeeds to load.
     if (cur->load_success) {
       for (int i = 3; i < FDT_SIZE; ++i) {
         if (cur->fdt[i]) {
@@ -250,14 +255,28 @@ process_exit (void)
         }
       }
     }
+    free(cur->fdt);
+
+    // Close running file if we have open it.
     if (cur->running_file) {
       file_close(cur->running_file);
     }
-    free(cur->fdt);
-    printf("%s: exit(%d)\n", cur->name, cur->exit_status);
-    if (!cur->load_success) {
-      sema_up(&cur->parent->load_sema);
-    }
+
+  // Print exit infomation. Note that we must ensure that if we failed to load,
+  // we must print exit information FIRST, and wake up parent thread.
+  // It is unnecessary to check if parent is valid, because parent is waiting now so it can't exit at the moment.
+  printf("%s: exit(%d)\n", cur->name, cur->exit_status);
+  if (!cur->load_success) {
+    sema_up(&cur->parent->load_sema);
+  }
+
+  // We must check wether current thread's parent thread is still running (not NULL).
+  // Wake up parent thread if it is waiting.
+  // It is totally ok if current thread's parent has exited.
+//  if (cur->parent) {
+  sema_up(&cur->wait_exit_sema);
+//  }
+
 }
 
 /** Sets up the CPU for running user code in the current

@@ -99,17 +99,11 @@ struct thread
     int original_priority;
     int nice;
     Q14 recent_cpu;
-    int exit_status;
     bool is_user_process;
+
     struct list childs;
     struct list_elem child_elem;
     struct thread *parent;
-    bool is_waited;
-    struct semaphore wait_exit_sema;
-    struct semaphore load_sema;
-    bool load_success;
-    struct file **fdt;
-    struct file *running_file;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
@@ -117,6 +111,14 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
+
+    struct semaphore wait_exit_sema;
+    struct semaphore load_sema;
+    struct file **fdt;
+    struct file *running_file;
+    bool is_waited;
+    bool load_success;
+    int exit_status;
 #endif
 
     /* Owned by thread.c. */
@@ -133,9 +135,7 @@ struct process_info {
 struct hash process_info_hashtable;
 
 unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED);
-
-bool process_info_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
-
+bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
 struct process_info *get_process_info_by_tid(tid_t tid);
 
 /** If false (default), use round-robin scheduler.
@@ -144,6 +144,8 @@ struct process_info *get_process_info_by_tid(tid_t tid);
 extern bool thread_mlfqs;
 
 extern struct list sleep_list;
+
+extern Q14 load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -181,20 +183,16 @@ int thread_get_load_avg (void);
 int64_t get_soon_wakeup_tick(void);
 void set_soon_wakeup_tick(int64_t wake_tick);
 
-bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 void thread_update_priority(struct thread *t);
 
-void update_priority_all(void);
+void mlfqs_update_priority_all(void);
+void mlfqs_update_recent_cpu_all(void);
+void mlfqs_increase_thread_recent_cpu(struct thread *t);
+Q14 mlfqs_calculate_load_avg(void);
 
-void update_recent_cpu_all(void);
-
-Q14 calculate_load_avg(void);
-
-void increase_recent_cpu(struct thread *t);
-
-struct thread *get_child_by_tid(tid_t child_tid);
-
+struct thread *thread_get_child_by_tid(tid_t child_tid);
 void remove_and_free_process_info_by_tid(tid_t tid);
 
 #endif /**< threads/thread.h */

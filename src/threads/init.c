@@ -41,9 +41,6 @@
 /** Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
 
-/** System's average load. */
-Q14 load_avg;
-
 #ifdef FILESYS
 /** -f: Format the file system? */
 static bool format_filesys;
@@ -88,8 +85,6 @@ pintos_init (void)
   argv = read_command_line ();
   argv = parse_options (argv);
 
-  load_avg = 0;
-
   /* Initialize ourselves as a thread so we can use locks,
      then enable console locking. */
   thread_init ();
@@ -103,7 +98,7 @@ pintos_init (void)
   palloc_init (user_page_limit);
   malloc_init ();
   paging_init ();
-  hash_init(&process_info_hashtable, process_info_hash, process_info_less, NULL);
+  hash_init(&process_info_hashtable, process_info_hash, cmp_process_info_elem_tid, NULL);
 
   /* Segmentation. */
 #ifdef USERPROG
