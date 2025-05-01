@@ -47,7 +47,7 @@ static struct lock tid_lock;
 static struct list mlfqs[PRI_MAX + 1];
 
 /** System's average load. */
-Q14 load_avg;
+static Q14 load_avg;
 
 /** Calculate the thread's priority, based on its niceness and the recent cpu. */
 static int calculate_thread_priority(struct thread *t);
@@ -71,6 +71,12 @@ static int get_thread_donor_priority(struct thread *t);
 static bool cmp_thread_elem_wakeup_tick(const struct list_elem *a,
                              const struct list_elem *b,
                              void *aux UNUSED);
+
+/** Calculate the system's current average load. */
+static Q14 mlfqs_calculate_load_avg(void);
+
+/** Compare two thread elements' priority. */
+static bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /** Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
@@ -130,8 +136,6 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init(&sleep_list);
-//  list_init(&process_info_list);
-//  hash_init(&process_info_hashtable, process_info_hash, process_info_less, NULL);
   for (int i = PRI_MIN; i <= PRI_MAX; ++i) {
     list_init(&mlfqs[i]);
   }
@@ -377,49 +381,15 @@ thread_exit (void)
   }
   
   // Set all childs' parent field to NULL to indicate that their parent has exited.
-  // Remove and free all childs' process_info to avoid resource leak,
-  // because there is no chance to free them after their parent exited.
-  // This may cause racing problem because child thread could exit just before we set its parent to NULL.
-  // And process_info list is a global data structure, so we have to modify it with intrrupt disabled.
   for (e = list_begin(&cur->childs); e != list_end(&cur->childs); e = list_next(e)) {
     struct thread *child = list_entry(e, struct thread, child_elem);
     child->parent = NULL;
-    remove_and_free_process_info_by_tid(child->tid);
   }
 
   list_remove (&thread_current()->allelem);
   thread_current()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
-}
-
-struct process_info *get_process_info_by_tid(tid_t tid)
-{
-  ASSERT (intr_get_level() == INTR_OFF);
-
-  struct process_info lookup;
-  lookup.self_tid = tid;
-  struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);
-  if (e != NULL) {
-    struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
-    return process_info;
-  } else {
-    return NULL;
-  }
-}
-
-void remove_and_free_process_info_by_tid(tid_t tid)
-{
-  ASSERT (intr_get_level() == INTR_OFF);
-
-  struct process_info lookup;
-  lookup.self_tid = tid;
-  struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);
-  if (e != NULL) {
-    struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
-    hash_delete(&process_info_hashtable, e);
-    free(process_info);
-  }
 }
 
 /** Yields the CPU.  The current thread is not put to sleep and
@@ -845,7 +815,7 @@ allocate_tid (void)
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
 /** Compare two elems' priority */
-bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+static bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   int priority_a = list_entry(a, struct thread, elem)->priority;
   int priority_b = list_entry(b, struct thread, elem)->priority;
@@ -955,8 +925,7 @@ static int calculate_thread_priority(struct thread *t)
   return priority;
 }
 
-
-Q14 mlfqs_calculate_load_avg(void)
+static Q14 mlfqs_calculate_load_avg(void)
 {
   Q14 fifty_nine = i_to_q14(59);
   Q14 sixty = i_to_q14(60);
@@ -966,6 +935,11 @@ Q14 mlfqs_calculate_load_avg(void)
   int ready_threads = get_num_ready_threads();
   Q14 second_part = q14_mul_i(coeff_2, ready_threads);
   return q14_add_q14(first_part, second_part);
+}
+
+void mlfqs_update_load_avg(void)
+{
+  load_avg = mlfqs_calculate_load_avg();
 }
 
 static Q14 calculate_thread_recent_cpu(struct thread *t)
@@ -1027,20 +1001,6 @@ void mlfqs_update_recent_cpu_all(void)
     }
     e = list_next(e);
   }
-}
-
-unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED)
-{
-
-   const struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
-   return hash_int(process_info->self_tid);
-}
-
-bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
-{
-   const struct process_info *info_a = hash_entry(a, struct process_info, process_info_elem);
-   const struct process_info *info_b = hash_entry(b, struct process_info, process_info_elem);
-   return info_a->self_tid < info_b->self_tid;
 }
 
 struct thread *thread_get_child_by_tid(tid_t child_tid)

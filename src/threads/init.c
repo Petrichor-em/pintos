@@ -98,7 +98,11 @@ pintos_init (void)
   palloc_init (user_page_limit);
   malloc_init ();
   paging_init ();
-  hash_init(&process_info_hashtable, process_info_hash, cmp_process_info_elem_tid, NULL);
+
+#ifdef USERPROG
+  /* Initialize user program support. */
+  process_init();
+#endif
 
   /* Segmentation. */
 #ifdef USERPROG

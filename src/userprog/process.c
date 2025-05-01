@@ -21,10 +21,38 @@
 
 #define MAX_TOKENS 32
 
+struct process_info {
+   tid_t self_tid;
+   tid_t parent_tid;
+   int exit_status;
+   struct hash_elem process_info_elem;
+};
+
+struct start_process_args {
+  bool load_success;
+  char *file_name;
+};
+
 struct lock filesys_lock;
+struct hash process_info_hashtable;
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+/** Tokenize command line arguments. */
+static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens);
+
+/** Get process's infomation by providing its TID. */
+static struct process_info *get_process_info_by_tid(tid_t tid);
+
+/** Compare two process information elements by their hash values. */
+static bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
+
+/** Hash function for process information element. */
+static unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED);
+
+/** Remove process information of the current thread's childs. */
+static void remove_and_free_process_info_by_tid(tid_t tid);
 
 static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
 {
@@ -38,15 +66,15 @@ static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
   cmd_tokens[pos] = NULL;
 }
 
+void process_init(void)
+{
+  hash_init(&process_info_hashtable, process_info_hash, cmp_process_info_elem_tid, NULL);
+}
+
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-
-struct start_process_args {
-  bool load_success;
-  char *file_name;
-};
 
 tid_t
 process_execute (const char *file_name) 
@@ -237,12 +265,23 @@ process_exit (void)
       pagedir_destroy (pd);
     }
 
-    // Store exit_status in process_info.
     enum intr_level old_level = intr_disable();
+
+    // Store exit_status in process_info.
     struct process_info *info = get_process_info_by_tid(cur->tid);
     if (info) {
       info->exit_status = cur->exit_status;
     }
+    
+    // Remove and free all childs' process_info to avoid resource leak,
+    // because there is no chance to free them after their parent exited.
+    // process_info list is a global data structure, so we have to modify it with intrrupt disabled.
+    struct list_elem *e;
+    for (e = list_begin(&cur->childs); e != list_end(&cur->childs); e = list_next(e)) {
+      struct thread *child = list_entry(e, struct thread, child_elem);
+      remove_and_free_process_info_by_tid(child->tid);
+    }
+
     intr_set_level(old_level);
 
     // Free file descriptor table.
@@ -628,4 +667,47 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+static struct process_info *get_process_info_by_tid(tid_t tid)
+{
+  ASSERT (intr_get_level() == INTR_OFF);
+
+  struct process_info lookup;
+  lookup.self_tid = tid;
+  struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);
+  if (e != NULL) {
+    struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
+    return process_info;
+  } else {
+    return NULL;
+  }
+}
+
+static void remove_and_free_process_info_by_tid(tid_t tid)
+{
+  ASSERT (intr_get_level() == INTR_OFF);
+
+  struct process_info lookup;
+  lookup.self_tid = tid;
+  struct hash_elem *e = hash_find(&process_info_hashtable, &lookup.process_info_elem);
+  if (e != NULL) {
+    struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
+    hash_delete(&process_info_hashtable, e);
+    free(process_info);
+  }
+}
+
+static unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED)
+{
+
+   const struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
+   return hash_int(process_info->self_tid);
+}
+
+static bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+{
+   const struct process_info *info_a = hash_entry(a, struct process_info, process_info_elem);
+   const struct process_info *info_b = hash_entry(b, struct process_info, process_info_elem);
+   return info_a->self_tid < info_b->self_tid;
 }

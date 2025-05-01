@@ -35,6 +35,12 @@
 /** Get the maximum priority of the lock's donors. */
 static int get_lock_donor_priority(struct lock *lock);
 
+/** Compare two condtion waiter elements' priority. */
+static bool cmp_cond_waiter_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
+/** Compare two thread elements' priority. */
+static bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
 /** Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -355,6 +361,19 @@ static bool cmp_cond_waiter_elem_priority(const struct list_elem *a, const struc
   struct thread *thread_a = list_entry(a, struct semaphore_elem, elem)->t;
   struct thread *thread_b = list_entry(b, struct semaphore_elem, elem)->t;
   if (thread_a->priority > thread_b->priority) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+/** Compare two elems' priority */
+static bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  int priority_a = list_entry(a, struct thread, elem)->priority;
+  int priority_b = list_entry(b, struct thread, elem)->priority;
+  if (priority_a > priority_b) {
     return true;
   }
   else {

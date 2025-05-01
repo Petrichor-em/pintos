@@ -125,27 +125,12 @@ struct thread
     unsigned magic;                     /**< Detects stack overflow. */
   };
 
-struct process_info {
-   tid_t self_tid;
-   tid_t parent_tid;
-   int exit_status;
-   struct hash_elem process_info_elem;
-};
-
-struct hash process_info_hashtable;
-
-unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED);
-bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
-struct process_info *get_process_info_by_tid(tid_t tid);
-
 /** If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
 extern struct list sleep_list;
-
-extern Q14 load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -183,16 +168,13 @@ int thread_get_load_avg (void);
 int64_t get_soon_wakeup_tick(void);
 void set_soon_wakeup_tick(int64_t wake_tick);
 
-bool cmp_thread_elem_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
-
 void thread_update_priority(struct thread *t);
 
 void mlfqs_update_priority_all(void);
 void mlfqs_update_recent_cpu_all(void);
 void mlfqs_increase_thread_recent_cpu(struct thread *t);
-Q14 mlfqs_calculate_load_avg(void);
+void mlfqs_update_load_avg(void);
 
 struct thread *thread_get_child_by_tid(tid_t child_tid);
-void remove_and_free_process_info_by_tid(tid_t tid);
 
 #endif /**< threads/thread.h */

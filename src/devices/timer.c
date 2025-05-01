@@ -188,7 +188,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
     // Every second.
     if (timer_ticks() % TIMER_FREQ == 0) {
 //      printf("1 sec in load_avg\n");
-      load_avg = mlfqs_calculate_load_avg();
+      mlfqs_update_load_avg();
     }
     // Every timer intrrupt.
     mlfqs_increase_thread_recent_cpu(cur);
