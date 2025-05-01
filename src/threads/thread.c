@@ -12,8 +12,6 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "fixed_point.h"
-#include "init.h"
-#include "malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
