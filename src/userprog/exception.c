@@ -4,6 +4,8 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "userprog/process.h"
 
 /** Number of page faults processed. */
 static long long page_fault_cnt;
@@ -148,16 +150,43 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  thread_exit();
+/*
+   When page fault occurs, after checking permission and validation of address,
+   if error occurs, generate "segmentation fault" and kill(-1) to terminate.
+   Check validation of fault_addr.
+   Define a new handler called handle_mm_fault(struct vm_entry *vme), and call it.
+   handle_mm_fault(struct vm_entry *vme) do following things:
+      - page allocation
+      - data load (file -> memory)
+      - page table setup
+   So the flow is:
+      - validate fault_addr
+         - if invalid, generate information and exit(-1)
+      - search vm_entry
+      - call handle_mm_fault(struct vm_entry *vme)
+      - successfully return
+*/
+
+if (is_kernel_vaddr(fault_addr)) {
+//   printf("Trying to access kernel virtual address space!\n");
+   thread_exit();
+}
+struct vm_entry *vme = vm_find(&thread_current()->vm_table, pg_round_down(fault_addr));
+if (vme == NULL) {
+   thread_exit();
+}
+if (!handle_mm_fault(vme)) {
+   thread_exit();
+}
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+//  printf ("Page fault at %p: %s error %s page in %s context.\n",
+//          fault_addr,
+//          not_present ? "not present" : "rights violation",
+//          write ? "writing" : "reading",
+//          user ? "user" : "kernel");
+//  kill (f);
 }
 

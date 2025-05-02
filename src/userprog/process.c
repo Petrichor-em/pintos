@@ -1,4 +1,5 @@
 #include "userprog/process.h"
+#include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
@@ -19,6 +20,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "vm/page.h"
 
 #define MAX_TOKENS 32
 
@@ -50,10 +52,16 @@ static struct process_info *get_process_info_by_tid(tid_t tid);
 static bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
 
 /** Hash function for process information element. */
-static unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED);
+static unsigned hash_process_info_elem(const struct hash_elem *e, void *aux UNUSED);
 
 /** Remove process information of the current thread's childs. */
 static void remove_and_free_process_info_by_tid(tid_t tid);
+
+static unsigned hash_vm_entry_elem(const struct hash_elem *e, void *aux UNUSED);
+
+static bool cmp_vm_entry_elem_vaddr(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
+
+static void destroy_vm_entry_elem(struct hash_elem *e, void *aux UNUSED);
 
 static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
 {
@@ -69,7 +77,7 @@ static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
 
 void process_init(void)
 {
-  hash_init(&process_info_hashtable, process_info_hash, cmp_process_info_elem_tid, NULL);
+  hash_init(&process_info_hashtable, hash_process_info_elem, cmp_process_info_elem_tid, NULL);
 }
 
 /** Starts a new thread running a user program loaded from
@@ -123,7 +131,9 @@ start_process (void *aux)
 {
   struct start_process_args *args = aux;
   struct thread *cur = thread_current();
+
   cur->is_user_process = true;
+
   cur->fdt = malloc(FDT_SIZE * sizeof (struct file *));
   memset(cur->fdt, 0, FDT_SIZE * sizeof (struct file *));
   struct process_info *process_info = malloc (sizeof (struct process_info));
@@ -132,6 +142,9 @@ start_process (void *aux)
   process_info->self_tid = cur->tid;
 //  list_push_back(&process_info_list, &process_info->process_info_elem);
   hash_insert(&process_info_hashtable, &process_info->process_info_elem);
+
+  vm_init(&cur->vm_table);
+
   char *file_name = args->file_name;
   struct intr_frame if_;
   bool success;
@@ -301,6 +314,8 @@ process_exit (void)
     if (cur->running_file) {
       file_close(cur->running_file);
     }
+
+  vm_destroy(&cur->vm_table);
 
   // Print exit infomation. Note that we must ensure that if we failed to load,
   // we must print exit information FIRST, and wake up parent thread.
@@ -497,6 +512,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   read_bytes = 0;
                   zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
                 }
+              // file_page is offset of the file and mem_page is the user virtual address where the segment should be place.
               if (!load_segment (file, file_page, (void *) mem_page,
                                  read_bytes, zero_bytes, writable))
                 goto done;
@@ -602,26 +618,38 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-
+     struct vm_entry *vme = malloc(sizeof (struct vm_entry));
+     vme->page_type = VM_ELF_EXCUTABLE;
+     vme->vaddr = upage;
+     vme->is_writable = writable;
+     vme->is_in_memory = false;
+     vme->read_bytes = page_read_bytes;
+     vme->zero_bytes = page_zero_bytes;
+     vme->offset = ofs;
+     ofs += PGSIZE;
+     vme->file = file;
+     vm_insert(&thread_current()->vm_table, vme);
+ 
+//       /* Get a page of memory. */
+//       uint8_t *kpage = palloc_get_page (PAL_USER);
+//       if (kpage == NULL)
+//         return false;
+// 
+//       /* Load this page. */
+//       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+//         {
+//           palloc_free_page (kpage);
+//           return false; 
+//         }
+//       memset (kpage + page_read_bytes, 0, page_zero_bytes);
+// 
+//       /* Add the page to the process's address space. */
+//       if (!install_page (upage, kpage, writable)) 
+//         {
+//           palloc_free_page (kpage);
+//           return false; 
+//         }
+// 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
@@ -699,7 +727,7 @@ static void remove_and_free_process_info_by_tid(tid_t tid)
   }
 }
 
-static unsigned process_info_hash(const struct hash_elem *e, void *aux UNUSED)
+static unsigned hash_process_info_elem(const struct hash_elem *e, void *aux UNUSED)
 {
 
    const struct process_info *process_info = hash_entry(e, struct process_info, process_info_elem);
@@ -711,4 +739,108 @@ static bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct ha
    const struct process_info *info_a = hash_entry(a, struct process_info, process_info_elem);
    const struct process_info *info_b = hash_entry(b, struct process_info, process_info_elem);
    return info_a->self_tid < info_b->self_tid;
+}
+
+/*
+  - allocate physical memory
+  - load file in the disk to physical memory
+    - use load_file(void *kaddr, struct vm_entry)
+  - update the associated page table after loading into physical memory
+    - use static bool install_page(void *upage, void *kpage, bool writable)
+  
+  So the flow is:
+  1. page allocation
+    - may fail, return false
+  2. check the vm_entry type
+    - if it is NOT a binary file, fail with returning false
+  3. load the data from file to the memory
+  4. set up page table
+  5. succuess, return true
+
+  For now, we only consider ELF file, later we'll cover anonymous page and the other file backed page.
+*/
+bool handle_mm_fault(struct vm_entry *vme)
+{
+  void *kpage = palloc_get_page(PAL_USER);
+  if (kpage == NULL) {
+    return false;
+  }
+  if (vme->page_type != VM_ELF_EXCUTABLE) {
+    palloc_free_page(kpage);
+    return false;
+  }
+  if (!load_page(kpage, vme)) {
+    palloc_free_page(kpage);
+    return false;
+  }
+  if (!install_page(vme->vaddr, kpage, vme->is_writable)) {
+    palloc_free_page(kpage);
+    return false;
+  }
+  return true;
+}
+
+void vm_init(struct hash *vm_table)
+{
+  hash_init(vm_table, hash_vm_entry_elem, cmp_vm_entry_elem_vaddr, NULL);
+}
+
+/*
+  Insert vme into vm_table. Return true if successfully insert, and false if
+  vme is already in the vm_table.
+*/
+bool vm_insert(struct hash *vm_table, struct vm_entry *vme)
+{
+  struct hash_elem *e = hash_insert(vm_table, &vme->vm_entry_elem);
+  if (e == NULL) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+struct vm_entry *vm_find(struct hash *vm_table, void *vaddr)
+{
+  struct vm_entry lookup;
+  lookup.vaddr = vaddr;
+  struct hash_elem *e = hash_find(vm_table, &lookup.vm_entry_elem);
+  if (e == NULL) {
+    return NULL;
+  }
+  struct vm_entry *vme = hash_entry(e, struct vm_entry, vm_entry_elem);
+  return vme;
+}
+
+bool vm_delete(struct hash *vm_table, struct vm_entry *vme)
+{
+  struct hash_elem *e = hash_delete(vm_table, &vme->vm_entry_elem);
+  if (e != NULL) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void vm_destroy(struct hash *vm_table)
+{
+  hash_destroy(vm_table, destroy_vm_entry_elem);
+}
+
+static unsigned hash_vm_entry_elem(const struct hash_elem *e, void *aux UNUSED)
+{
+  struct vm_entry *vme = hash_entry(e, struct vm_entry, vm_entry_elem);
+  return hash_bytes(&vme->vaddr, sizeof (void *));
+}
+
+static bool cmp_vm_entry_elem_vaddr(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+{
+  const struct vm_entry *vme_a = hash_entry(a, struct vm_entry, vm_entry_elem);
+  const struct vm_entry *vme_b = hash_entry(b, struct vm_entry, vm_entry_elem);
+  return vme_a->vaddr < vme_b->vaddr;
+}
+
+static void destroy_vm_entry_elem(struct hash_elem *e, void *aux UNUSED)
+{
+  struct vm_entry *vme = hash_entry(e, struct vm_entry, vm_entry_elem);
+  free(vme);
 }

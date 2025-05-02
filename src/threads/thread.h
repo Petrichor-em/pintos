@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <fixed_point.h>
 #include "synch.h"
+#include <hash.h>
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -118,6 +119,7 @@ struct thread
     bool is_waited;
     bool load_success;
     int exit_status;
+    struct hash vm_table;
 #endif
 
     /* Owned by thread.c. */

@@ -15,11 +15,11 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "devices/serial.h"
+#include "devices/input.h"
 
 static void syscall_handler (struct intr_frame *);
 static void validate_addr(const void *addr);
 static void validate_string_addr(const char *addr);
-static void handle_illegal_memory_access(void);
 
 void
 syscall_init (void) 
@@ -28,21 +28,28 @@ syscall_init (void)
   lock_init(&filesys_lock);
 }
 
+// After implementing demand paging, we only need to check if ADDR is a user address.
+// If the page is not in memory, it is likely that we haven't load it from disk into memory.
+// page_fault() will take care of that.
 static void validate_addr(const void *addr)
 {
-  if (!is_user_vaddr(addr) || !pagedir_get_page(thread_current()->pagedir, pg_round_down(addr))) {
-    handle_illegal_memory_access();
+//  if (!is_user_vaddr(addr) || !pagedir_get_page(thread_current()->pagedir, pg_round_down(addr))) {
+//    handle_illegal_memory_access();
+//  }
+  if (is_kernel_vaddr(addr)) {
+    thread_exit();
   }
 }
 
 static void validate_args_addr(const uint32_t *argv, int cnt)
 {
   for (int i = 0; i < cnt; ++i) {
-    validate_addr(&argv[0]);
-    validate_addr(&argv[0] + 1);
+    validate_addr(&argv[i]);
+    validate_addr(&argv[i] + 1);
   }
 }
 
+// This function may trigger page_fault(), and introduce unloaded virtual page into memory.
 static void validate_string_addr(const char *addr)
 {
   const char *s = addr;
@@ -53,20 +60,16 @@ static void validate_string_addr(const char *addr)
   }
 }
 
+// For demand paging, if the buffer address is in user space, we don't have to check
+// whether the buffer is mapped in the page directory, because page_fault() will page on demand.
 static void validate_buffer_addr(const void *addr, unsigned buffer_size)
 {
-  validate_addr(addr);
-  validate_addr(addr + buffer_size);
+//  validate_addr(addr);
+//  validate_addr(addr + buffer_size);
+  if (is_kernel_vaddr(addr) || is_kernel_vaddr(addr + buffer_size)) {
+    thread_exit();
+  }
 }
-
-static void handle_illegal_memory_access(void)
-{
-// exit_status is initally -1, so this can be comment out.
-// thread_current()->exit_status = -1;
-//  printf("ILLEGAL MEMORY ACCESS\n");
-  thread_exit();
-}
-
 
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
