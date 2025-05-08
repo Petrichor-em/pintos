@@ -21,6 +21,7 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "vm/page.h"
+#include <bitmap.h>
 
 #define MAX_TOKENS 32
 
@@ -77,7 +78,10 @@ static void tokenize_cmd(char *s, const char *delim, char **cmd_tokens)
 
 void process_init(void)
 {
+  // Initialize process_info_hashtable, which will be used by the process_wait() system call.
   hash_init(&process_info_hashtable, hash_process_info_elem, cmp_process_info_elem_tid, NULL);
+  lock_init(&filesys_lock);  // Global filesystem lock.
+  page_init(); // Initialize paging system.
 }
 
 /** Starts a new thread running a user program loaded from
@@ -262,6 +266,9 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  // We will access memory in this function, so we must call it before pagedir_destroy().
+  demand_destroy();
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -295,6 +302,8 @@ process_exit (void)
       struct thread *child = list_entry(e, struct thread, child_elem);
       remove_and_free_process_info_by_tid(child->tid);
     }
+ 
+    vm_destroy(&cur->vm_table);
 
     intr_set_level(old_level);
 
@@ -315,7 +324,7 @@ process_exit (void)
       file_close(cur->running_file);
     }
 
-  vm_destroy(&cur->vm_table);
+//    vm_destroy(&cur->vm_table);
 
   // Print exit infomation. Note that we must ensure that if we failed to load,
   // we must print exit information FIRST, and wake up parent thread.
@@ -618,16 +627,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-     struct vm_entry *vme = malloc(sizeof (struct vm_entry));
+     struct vm_entry *vme = vm_create();
      vme->page_type = VM_ELF_EXCUTABLE;
      vme->vaddr = upage;
      vme->is_writable = writable;
      vme->is_in_memory = false;
+
      vme->read_bytes = page_read_bytes;
      vme->zero_bytes = page_zero_bytes;
      vme->offset = ofs;
      ofs += PGSIZE;
      vme->file = file;
+//     lock_init(&vme->access);
      vm_insert(&thread_current()->vm_table, vme);
  
 //       /* Get a page of memory. */
@@ -761,28 +772,102 @@ static bool cmp_process_info_elem_tid(const struct hash_elem *a, const struct ha
 */
 bool handle_mm_fault(struct vm_entry *vme)
 {
+
+  ASSERT(vme);
+  ASSERT(!vme->is_in_memory);
+
+  // @Debug
+/*
+  switch (vme->page_type) {
+    case VM_INVALID:
+      printf("Invalid page fault\n");
+      break;
+    case VM_ANONYMOUS:
+      printf("Anonymous page fault\n");
+      break;
+    case VM_ELF_EXCUTABLE:
+      printf("Elf page fault\n");
+      break;
+    case VM_GENERAL_FILE:
+      printf("General file page fault\n");
+      break;
+    case VM_STACK_GROWTH:
+      printf("Stack growth page fault\n");
+      break;
+  }
+*/
+
   void *kpage = palloc_get_page(PAL_USER);
   if (kpage == NULL) {
-    return false;
+//    return false;
+    kpage = lru_evict_page();
+    ASSERT(kpage);
   }
-  if (vme->page_type != VM_ELF_EXCUTABLE) {
-    palloc_free_page(kpage);
-    return false;
+
+  if (vme->page_type == VM_ELF_EXCUTABLE) {
+    if (!load_page_from_elf_excutable(kpage, vme)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+    if (!install_page(vme->vaddr, kpage, vme->is_writable)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+    if (!lru_add_frame(kpage, vme)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+//    ASSERT(vme->is_in_memory);
+    return true;
+  } else if (vme->page_type == VM_ANONYMOUS) {
+    // @Debug
+    // We should wait for completing swapping, if is_swapped is false.
+//    if (!vme->is_swapped) {
+//      sema_down(&vme->swap_sema);
+//    }
+    swap_in(kpage, vme);
+    if (!install_page(vme->vaddr, kpage, vme->is_writable)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+    if (!lru_add_frame(kpage, vme)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+//    ASSERT(vme->is_in_memory);
+    return true;
+  } else if (vme->page_type == VM_STACK_GROWTH) {
+    if (!install_page(vme->vaddr, kpage, vme->is_writable)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+    vme->page_type = VM_ANONYMOUS;
+    vme->sector = 0;
+    vme->is_swapped = false;
+    if (!lru_add_frame(kpage, vme)) {
+      palloc_free_page(kpage);
+      return false;
+    }
+//    ASSERT(vme->is_in_memory);
+    return true;
   }
-  if (!load_page(kpage, vme)) {
-    palloc_free_page(kpage);
-    return false;
-  }
-  if (!install_page(vme->vaddr, kpage, vme->is_writable)) {
-    palloc_free_page(kpage);
-    return false;
-  }
-  return true;
+  printf("NO REACH!\n");
+  thread_exit();
 }
 
 void vm_init(struct hash *vm_table)
 {
   hash_init(vm_table, hash_vm_entry_elem, cmp_vm_entry_elem_vaddr, NULL);
+}
+
+struct vm_entry *vm_create(void)
+{
+  struct vm_entry *vme = malloc(sizeof (struct vm_entry));
+  if (vme == NULL) {
+    return NULL;
+  }
+  memset(vme, 0, sizeof (struct vm_entry));
+  return vme;
 }
 
 /*

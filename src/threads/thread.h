@@ -90,6 +90,7 @@ struct thread
     enum thread_status status;          /**< Thread state. */
     char name[16];                      /**< Name (for debugging purposes). */
     uint8_t *stack;                     /**< Saved stack pointer. */
+    uint8_t *user_stack;                /**< Saved user stack top. */
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
     int64_t wakeup_tick;                /**< The tick when this thread should wake up. */
@@ -114,6 +115,7 @@ struct thread
 
     struct semaphore wait_exit_sema;
     struct semaphore load_sema;
+    struct lock evict_lock;
     struct file **fdt;
     struct file *running_file;
     bool is_waited;

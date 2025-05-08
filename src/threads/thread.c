@@ -352,6 +352,10 @@ thread_exit (void)
 {
   ASSERT (!intr_context ());
 
+  // @Debug
+  static int wait_times = 0;
+  // debug_backtrace_all();
+
 #ifdef USERPROG
   process_exit ();
 #endif
@@ -677,6 +681,7 @@ init_thread (struct thread *t, const char *name, int priority)
 #ifdef USERPROG
   sema_init(&t->wait_exit_sema, 0);
   sema_init(&t->load_sema, 0);
+  lock_init(&t->evict_lock);
   t->exit_status = -1;
   t->fdt = NULL;
   t->running_file = NULL;

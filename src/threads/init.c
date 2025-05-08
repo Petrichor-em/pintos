@@ -99,11 +99,6 @@ pintos_init (void)
   malloc_init ();
   paging_init ();
 
-#ifdef USERPROG
-  /* Initialize user program support. */
-  process_init();
-#endif
-
   /* Segmentation. */
 #ifdef USERPROG
   tss_init ();
@@ -130,6 +125,12 @@ pintos_init (void)
   ide_init ();
   locate_block_devices ();
   filesys_init (format_filesys);
+#endif
+
+// process_init() will init paging system, which need swap block.
+// Swap block won't be registered until ide_init() called.
+#ifdef USERPROG
+  process_init();
 #endif
 
   printf ("Boot complete.\n");

@@ -167,16 +167,49 @@ page_fault (struct intr_frame *f)
       - successfully return
 */
 
+if (!not_present) {
+   thread_exit();
+}
+
 if (is_kernel_vaddr(fault_addr)) {
 //   printf("Trying to access kernel virtual address space!\n");
    thread_exit();
 }
-struct vm_entry *vme = vm_find(&thread_current()->vm_table, pg_round_down(fault_addr));
-if (vme == NULL) {
-   thread_exit();
-}
-if (!handle_mm_fault(vme)) {
-   thread_exit();
+
+// If this page fault is caused in kernel mode, then user stack is in current thread's user_stack field;
+// if caused in user mode, then it is in f->esp;
+void *user_stack = user? f->esp : thread_current()->user_stack;
+
+struct vm_entry *vme = NULL;
+
+if (fault_addr >= user_stack - 32) {
+   // printf("STACK GROWTH PAGE FAULT TRIGGERED!\n");
+   // printf("Stack top is %x\n", f->esp);
+   // printf("Try to access %x\n", fault_addr);
+   vme = vm_create();
+   if (vme == NULL) {
+      thread_exit();
+   }
+   vme->page_type = VM_STACK_GROWTH;
+   vme->vaddr = pg_round_down(fault_addr);
+   vme->is_writable = true;
+   vme->is_in_memory = false;
+   vm_insert(&thread_current()->vm_table, vme);
+   if (!handle_mm_fault(vme)) {
+      thread_exit();
+   }
+} else {
+   vme = vm_find(&thread_current()->vm_table, pg_round_down(fault_addr));
+   if (vme == NULL) {
+      // printf("Exit because vme == NULL\n");
+      // printf("Try to access %x\n", fault_addr);
+      // printf("Stack top is %x\n", f->esp);
+      // printf("But saved stack top is %x\n", thread_current()->stack);
+      thread_exit();
+   }
+   if (!handle_mm_fault(vme)) {
+      thread_exit();
+   }
 }
 
   /* To implement virtual memory, delete the rest of the function

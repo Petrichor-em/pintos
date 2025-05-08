@@ -25,7 +25,9 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&filesys_lock);
+  // @TODO
+  // filesys_lock maybe initialized in process_init()
+//  lock_init(&filesys_lock);
 }
 
 // After implementing demand paging, we only need to check if ADDR is a user address.
@@ -88,6 +90,10 @@ syscall_handler (struct intr_frame *f UNUSED)
   void *buffer_addr = NULL;
   uint8_t byte = 0;
   int bytes_read = 0;
+  // Save user stack pointer, because page fault may happen during system call
+  // and we won't know what's the value of the user stack then, and couldn't handle user stack growth.
+  cur->user_stack = f->esp;
+
 //  printf("SYSCALL_NO: %d\n", syscall_no);
 
   switch (syscall_no) {
